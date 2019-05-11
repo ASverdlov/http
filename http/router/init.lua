@@ -51,35 +51,51 @@ local function request_from_env(env, router)  -- luacheck: ignore
 end
 
 local function handler(self, env)
-    local request = request_from_env(env, self)
-
+    --[[
+    -- TODO: find a way for both
     if self.hooks.before_dispatch ~= nil then
         self.hooks.before_dispatch(self, request)
     end
+    ]]
 
-    local format = uri_file_extension(request.env['PATH_INFO'], 'html')
+    local format = uri_file_extension(env['PATH_INFO'], 'html')
 
     -- Try to find matching route,
     -- if failed, try static file.
     --
     -- `r` is route-info (TODO: ???), this is dispatching at its glory
 
-    local r = self:match(request.env['REQUEST_METHOD'], request.env['PATH_INFO'])
+    -- w/o route, no middleware! TODO: enable prerouting middleware!
+    local r = self:match(env['REQUEST_METHOD'], env['PATH_INFO'])
     if r == nil then
+        local request = request_from_env(env, self)
         return fs.static_file(self, request, format)
     end
 
     local stash = utils.extend(r.stash, { format = format })
 
-    request.endpoint = r.endpoint  -- THIS IS ROUTE, BUT IS NAMED `ENDPOINT`! OH-MY-GOD!
-    request.tstash   = stash
+    -- setup middleware callchain
+    env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_CURRENT] = 1
+    env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE] = table.deepcopy( -- luacheck: ignore
+        r.endpoint.middleware or {}
+    )
+    table.insert(env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE], function(_)
+        local request = request_from_env(env, self)
+        request.endpoint = r.endpoint  -- THIS IS ROUTE, BUT IS NAMED `ENDPOINT`! OH-MY-GOD!
+        request.tstash   = stash
+        return r.endpoint.sub(request)
+    end)
 
-    -- execute user-specified request handler
-    local resp = r.endpoint.sub(request)
+    -- execute middleware chain and user-specified request
+    -- handler at the end.
+    local resp = env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE][1](env)
 
+    --[[
+    -- TODO: find a way for both
     if self.hooks.after_dispatch ~= nil then
         self.hooks.after_dispatch(request, resp)
     end
+    --]]
     return resp
 end
 
