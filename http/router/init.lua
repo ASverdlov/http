@@ -50,53 +50,38 @@ local function request_from_env(env, router)  -- luacheck: ignore
     return setmetatable(request, request_metatable)
 end
 
-local function handler(self, env)
-    --[[
-    -- TODO: find a way for both
-    if self.hooks.before_dispatch ~= nil then
-        self.hooks.before_dispatch(self, request)
-    end
-    ]]
-
+local function main_endpoint_middleware(env)
+    local self = env[tsgi.KEY_ROUTER]
     local format = uri_file_extension(env['PATH_INFO'], 'html')
-
-    -- Try to find matching route,
-    -- if failed, try static file.
-    --
-    -- `r` is route-info (TODO: ???), this is dispatching at its glory
-
-    -- w/o route, no middleware! TODO: enable prerouting middleware!
-    local r = self:match(env['REQUEST_METHOD'], env['PATH_INFO'])
+    local r = env[tsgi.KEY_ROUTE]
+    local request = request_from_env(env, self)
     if r == nil then
-        local request = request_from_env(env, self)
         return fs.static_file(self, request, format)
     end
-
     local stash = utils.extend(r.stash, { format = format })
+    request.endpoint = r.endpoint  -- THIS IS ROUTE, BUT IS NAMED `ENDPOINT`! OH-MY-GOD!
+    request.tstash   = stash
+    return r.endpoint.sub(request)
+end
+
+local function handler(self, env)
+    env[tsgi.KEY_ROUTER] = self
+
+    -- TODO: enable prerouting middleware
+
+    local r = self:match(env['REQUEST_METHOD'], env['PATH_INFO'])
+    env[tsgi.KEY_ROUTE] = r
 
     -- setup middleware callchain
     env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_CURRENT] = 1
     env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE] = table.deepcopy( -- luacheck: ignore
         r.endpoint.middleware or {}
     )
-    table.insert(env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE], function(_)
-        local request = request_from_env(env, self)
-        request.endpoint = r.endpoint  -- THIS IS ROUTE, BUT IS NAMED `ENDPOINT`! OH-MY-GOD!
-        request.tstash   = stash
-        return r.endpoint.sub(request)
-    end)
+    -- last in chain
+    table.insert(env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE], main_endpoint_middleware)
 
-    -- execute middleware chain and user-specified request
-    -- handler at the end.
-    local resp = env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE][1](env)
-
-    --[[
-    -- TODO: find a way for both
-    if self.hooks.after_dispatch ~= nil then
-        self.hooks.after_dispatch(request, resp)
-    end
-    --]]
-    return resp
+    -- execute middleware chain from first
+    return env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE][1](env)
 end
 
 -- TODO: `route` is not route, but path...

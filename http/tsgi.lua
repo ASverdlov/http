@@ -7,6 +7,8 @@ local KEY_SOCK = 'tarantool.http.sock'
 local KEY_REMAINING = 'tarantool.http.sock_remaining_len'
 local KEY_PARSED_REQUEST = 'tarantool.http.parsed_request'
 local KEY_PEER = 'tarantool.http.peer'
+local KEY_ROUTE = 'tarantool.http.route'
+local KEY_ROUTER = 'tarantool.http.router'
 
 local KEY_MIDDLEWARE_CALLCHAIN_CURRENT = 'tarantool.middleware.callchain_current'
 local KEY_MIDDLEWARE_CALLCHAIN_TABLE = 'tarantool.middleware.callchain_table'
@@ -70,6 +72,8 @@ return {
     -- middleware support
     KEY_MIDDLEWARE_CALLCHAIN_CURRENT = KEY_MIDDLEWARE_CALLCHAIN_CURRENT,
     KEY_MIDDLEWARE_CALLCHAIN_TABLE = KEY_MIDDLEWARE_CALLCHAIN_TABLE,
+    KEY_ROUTE = KEY_ROUTE,
+    KEY_ROUTER = KEY_ROUTER,
 
     next_handler = middleware_next_handler,
 }
