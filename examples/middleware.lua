@@ -21,13 +21,11 @@ local function swap_orange_and_apple(env)
         env['PATH_INFO'] = '/fruits/orange'
     end
 
-    local handler = tsgi.next_handler(env)
-    return handler(env)
+    return tsgi.invoke_next_handler(env)
 end
 
 local function add_helloworld_to_response(env)
-    local handler = tsgi.next_handler(env)
-    local resp = handler(env)
+    local resp = tsgi.invoke_next_handler(env)
 
     local lua_body = json.decode(resp.body)
     lua_body.message = 'hello world!'
