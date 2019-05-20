@@ -64,24 +64,43 @@ local function main_endpoint_middleware(env)
     return r.endpoint.sub(request)
 end
 
-local function handler(self, env)
-    env[tsgi.KEY_ROUTER] = self
-
-    -- TODO: enable prerouting middleware
-
+local function dispatch_middleware(env)
+    local self = env[tsgi.KEY_ROUTER]
     local r = self:match(env['REQUEST_METHOD'], env['PATH_INFO'])
     env[tsgi.KEY_ROUTE] = r
 
+    -- add route-specific middleware
+    if r and r.endpoint and r.endpoint.middleware then
+        for _, f in pairs(r.endpoint.middleware) do
+            tsgi.push_back_handler(env, f)
+        end
+    end
+
+    -- finally, add user specified handler
+    tsgi.push_back_handler(env, main_endpoint_middleware)
+
+    local next_handler = tsgi.next_handler(env)
+    return next_handler(env)
+end
+
+local function handler(self, env)
+    env[tsgi.KEY_ROUTER] = self
+
     -- setup middleware callchain
-    env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_CURRENT] = 1
-    env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE] = table.deepcopy( -- luacheck: ignore
-        r.endpoint.middleware or {}
-    )
-    -- last in chain
-    table.insert(env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE], main_endpoint_middleware)
+    tsgi.init_handlers(env)
+
+    -- preroute middleware
+    if self and self.options and self.options.preroute_middleware then
+        for _, f in pairs(self.options.preroute_middleware) do
+            tsgi.push_back_handler(env, f)
+        end
+    end
+
+    -- add routing
+    tsgi.push_back_handler(env, dispatch_middleware)
 
     -- execute middleware chain from first
-    return env[tsgi.KEY_MIDDLEWARE_CALLCHAIN_TABLE][1](env)
+    return tsgi.invoke_handlers(env)
 end
 
 -- TODO: `route` is not route, but path...
@@ -335,6 +354,7 @@ local exports = {
             cache_templates     = true,
             cache_controllers   = true,
             cache_static        = true,
+            preroute_middleware = {},
         }
 
         local self = {

@@ -51,12 +51,26 @@ local function serialize_request(env)
     return res
 end
 
+local function middleware_init_handlers(env)
+    env[KEY_MIDDLEWARE_CALLCHAIN_CURRENT] = 1
+    env[KEY_MIDDLEWARE_CALLCHAIN_TABLE] = {}
+end
+
+local function middleware_invoke_handlers(env)
+    return env[KEY_MIDDLEWARE_CALLCHAIN_TABLE][1](env)
+end
+
 local function middleware_next_handler(env)
-    local callchain_table = env[KEY_MIDDLEWARE_CALLCHAIN_TABLE]
+    local callchain = env[KEY_MIDDLEWARE_CALLCHAIN_TABLE]
     local next_handler_id = env[KEY_MIDDLEWARE_CALLCHAIN_CURRENT] + 1
-    local next_handler = callchain_table[next_handler_id]
+    local next_handler = callchain[next_handler_id]
     env[KEY_MIDDLEWARE_CALLCHAIN_CURRENT] = next_handler_id
     return next_handler
+end
+
+local function middleware_push_back_handler(env, f)
+    local callchain = env[KEY_MIDDLEWARE_CALLCHAIN_TABLE]
+    table.insert(callchain, f)
 end
 
 return {
@@ -75,5 +89,8 @@ return {
     KEY_ROUTE = KEY_ROUTE,
     KEY_ROUTER = KEY_ROUTER,
 
+    init_handlers = middleware_init_handlers,
+    invoke_handlers = middleware_invoke_handlers,
     next_handler = middleware_next_handler,
+    push_back_handler = middleware_push_back_handler,
 }
