@@ -1,4 +1,5 @@
 local fs = require('http.router.fs')
+local middleware = require('http.router.middleware')
 local request_metatable = require('http.router.request').metatable
 
 local utils = require('http.utils')
@@ -50,37 +51,52 @@ local function request_from_env(env, router)  -- luacheck: ignore
     return setmetatable(request, request_metatable)
 end
 
-local function handler(self, env)
+local function main_endpoint_middleware(env)
+    local self = env[tsgi.KEY_ROUTER]
+    local format = uri_file_extension(env['PATH_INFO'], 'html')
+    local r = env[tsgi.KEY_ROUTE]
     local request = request_from_env(env, self)
-
-    if self.hooks.before_dispatch ~= nil then
-        self.hooks.before_dispatch(self, request)
-    end
-
-    local format = uri_file_extension(request.env['PATH_INFO'], 'html')
-
-    -- Try to find matching route,
-    -- if failed, try static file.
-    --
-    -- `r` is route-info (TODO: ???), this is dispatching at its glory
-
-    local r = self:match(request.env['REQUEST_METHOD'], request.env['PATH_INFO'])
     if r == nil then
         return fs.static_file(self, request, format)
     end
-
     local stash = utils.extend(r.stash, { format = format })
-
     request.endpoint = r.endpoint  -- THIS IS ROUTE, BUT IS NAMED `ENDPOINT`! OH-MY-GOD!
     request.tstash   = stash
+    return r.endpoint.sub(request)
+end
 
-    -- execute user-specified request handler
-    local resp = r.endpoint.sub(request)
+local function dispatch_middleware(env)
+    local self = env[tsgi.KEY_ROUTER]
 
-    if self.hooks.after_dispatch ~= nil then
-        self.hooks.after_dispatch(request, resp)
+    local r = self:match(env['REQUEST_METHOD'], env['PATH_INFO'])
+    env[tsgi.KEY_ROUTE] = r
+
+    -- TODO: filtering on m.path, m.method, etc.
+
+    -- add route-specific middleware
+    for _, m in pairs(self.middleware:ordered()) do
+        tsgi.push_back_handler(env, m.sub)
     end
-    return resp
+
+    -- finally, add user specified handler
+    tsgi.push_back_handler(env, main_endpoint_middleware)
+
+    return tsgi.invoke_next_handler(env)
+end
+
+local function handler(self, env)
+    env[tsgi.KEY_ROUTER] = self
+
+    -- set-up middleware chain
+    tsgi.init_handlers(env)
+
+    -- TODO: add pre-route middleware
+
+    -- add routing
+    tsgi.push_back_handler(env, dispatch_middleware)
+
+    -- execute middleware chain from first
+    return tsgi.invoke_next_handler(env)
 end
 
 -- TODO: `route` is not route, but path...
@@ -197,6 +213,19 @@ local possible_methods = {
     DELETE = 'DELETE',
     PATCH  = 'PATCH',
 }
+
+-- TODO: error-handling, validation
+local function use_middleware(self, opts, sub)
+    if type(opts) ~= 'table' or type(self) ~= 'table' then
+        error("Usage: router:route({ ... }, function(cx) ... end)")
+    end
+    assert(type(opts.name) == 'string')
+
+    local opts = table.deepcopy(opts)   -- luacheck: ignore
+    opts.sub = sub
+
+    return self.middleware:use(opts)
+end
 
 local function add_route(self, opts, sub)
     if type(opts) ~= 'table' or type(self) ~= 'table' then
@@ -339,17 +368,19 @@ local exports = {
         local self = {
             options = utils.extend(default, options, true),
 
-            routes  = {  },         -- routes array
-            iroutes = {  },         -- routes by name
-            helpers = {             -- for use in templates
+            routes      = {  },              -- routes array
+            iroutes     = {  },              -- routes by name
+            middleware = middleware.new(),   -- new middleware
+            helpers = {                      -- for use in templates
                 url_for = url_for_helper,
             },
-            hooks   = {  },         -- middleware
+            hooks       = {  },              -- middleware
 
             -- methods
-            route   = add_route,    -- add route
-            helper  = set_helper,   -- for use in templates
-            hook    = set_hook,     -- middleware
+            use     = use_middleware,  -- new middleware
+            route   = add_route,       -- add route
+            helper  = set_helper,      -- for use in templates
+            hook    = set_hook,        -- middleware
             url_for = url_for,
 
             -- private

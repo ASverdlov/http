@@ -32,7 +32,7 @@ box.schema.user.grant(              -- luacheck: ignore
 )
 
 local test = tap.test("http")
-test:plan(7)
+test:plan(8)
 test:test("split_uri", function(test)
     test:plan(65)
     local function check(uri, rhs)
@@ -160,6 +160,9 @@ local function is_builtin_test()
 end
 
 local function choose_server()
+    local log_requests = true
+    local log_errors = true
+
     if is_nginx_test() then
         -- host and port are for SERVER_NAME, SERVER_PORT only.
         -- TODO: are they required?
@@ -168,14 +171,14 @@ local function choose_server()
             host = '127.0.0.1',
             port = 12345,
             tnt_method = 'nginx_entrypoint',
-            log_requests = false,
-            log_errors = false,
+            log_requests = log_requests,
+            log_errors = log_errors,
         })
     end
 
     return http_server.new('127.0.0.1', 12345, {
-        log_requests = false,
-        log_errors = false
+        log_requests = log_requests,
+        log_errors = log_errors
     })
 end
 
@@ -526,6 +529,103 @@ test:test("server requests", function(test)
     else
         test:ok(true, 'post body - ignore on NGINX')
     end
+
+    httpd:stop()
+end)
+
+test:test("middleware", function(test)
+    test:plan(9)
+    local httpd, router = cfgserv()
+
+    local add_helloworld_before_to_response = function(env)
+        local tsgi = require('http.tsgi')
+        local resp = tsgi.invoke_next_handler(env)
+
+        local lua_body = json.decode(resp.body)
+        lua_body.message = 'hello world! (before)'
+        resp.body = json.encode(lua_body)
+
+        return resp
+    end
+
+    local add_helloworld_to_response = function(env)
+        local tsgi = require('http.tsgi')
+        local resp = tsgi.invoke_next_handler(env)
+
+        local lua_body = json.decode(resp.body)
+        lua_body.message = 'hello world!'
+        resp.body = json.encode(lua_body)
+
+        return resp
+    end
+
+    local ok = router:use(
+        {
+            name = 'hello_world',
+            path = '/',
+            method = {'GET', 'POST'},
+            -- TODO: before:
+            -- TODO: after:
+        },
+        add_helloworld_to_response
+    )
+    test:ok(ok, 'hello_world middleware added successfully')
+
+    local middlewares_ordered = router.middleware:ordered()
+    test:is(#middlewares_ordered, 1, 'one middleware is registered')
+
+    ok = router:use(
+        {
+            name = 'hello_world_before',
+            path = '/',
+            method = {'GET', 'POST'},
+            before = 'hello_world'
+            -- TODO: after:
+        },
+        add_helloworld_before_to_response
+    )
+    test:ok(ok, 'hello_world_before middleware added successfully')
+
+    middlewares_ordered = router.middleware:ordered()
+    test:is(#middlewares_ordered, 2, 'both middlewares are registered')
+    test:is(middlewares_ordered[1].name, 'hello_world_before',
+            'hello_world_before is first')
+    test:is(middlewares_ordered[2].name, 'hello_world',
+            'hello_world is last')
+
+    local apple_handler = function()
+        return {status = 200, body = json.encode({kind = 'apple'})}
+    end
+
+    local orange_handler = function()
+        return {status = 200, body = json.encode({kind = 'orange'})}
+    end
+
+    router:route(
+        {
+            method = 'GET',
+            path = '/fruits/apple',
+        },
+        apple_handler
+    )
+    router:route(
+        {
+            method = 'GET',
+            path = '/fruits/orange',
+        },
+        orange_handler
+    )
+
+    httpd:start()
+
+    local r = http_client.get(
+        'http://127.0.0.1:12345/fruits/apple'
+    )
+    test:is(r.status, 200, 'status')
+    require('log').info('DEBUG: /fruits/apple response: %s', r.body)
+    local parsed_body = json.decode(r.body)
+    test:is(parsed_body.kind, 'apple', 'body is correct')
+    test:is(parsed_body.message, 'hello world! (before)', 'hello_world middleware invoked last')
 
     httpd:stop()
 end)
