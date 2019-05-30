@@ -562,10 +562,8 @@ test:test("middleware", function(test)
     local ok = router:use(
         {
             name = 'hello_world',
-            path = '/',
+            path = '/.*',
             method = {'GET', 'POST'},
-            -- TODO: before:
-            -- TODO: after:
         },
         add_helloworld_to_response
     )
@@ -577,10 +575,9 @@ test:test("middleware", function(test)
     ok = router:use(
         {
             name = 'hello_world_before',
-            path = '/',
-            method = {'GET', 'POST'},
+            path = '/.*',
+            method = 'ANY',
             before = 'hello_world'
-            -- TODO: after:
         },
         add_helloworld_before_to_response
     )

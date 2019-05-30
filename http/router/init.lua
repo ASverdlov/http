@@ -72,11 +72,14 @@ local function dispatch_middleware(env)
     local r = self:match(env['REQUEST_METHOD'], env['PATH_INFO'])
     env[tsgi.KEY_ROUTE] = r
 
-    -- TODO: filtering on m.path, m.method, etc.
-
-    -- add route-specific middleware
+    local filter = matching.transform_filter({
+        path = env['PATH_INFO'],
+        method = env['REQUEST_METHOD']
+    })
     for _, m in pairs(self.middleware:ordered()) do
-        tsgi.push_back_handler(env, m.sub)
+        if matching.matches(m, filter) then
+            tsgi.push_back_handler(env, m.sub)
+        end
     end
 
     -- finally, add user specified handler
@@ -191,6 +194,7 @@ local function use_middleware(self, opts, sub)
     assert(type(opts.name) == 'string')
 
     local opts = table.deepcopy(opts)   -- luacheck: ignore
+    opts.match, opts.stash = matching.transform_pattern(opts.path)
     opts.sub = sub
 
     return self.middleware:use(opts)
