@@ -231,55 +231,8 @@ local function add_route(self, opts, sub)
 
     opts.controller = ctx
     opts.action = action
-    opts.match = opts.path
-    opts.match = string.gsub(opts.match, '[-]', "[-]")
 
-    -- TODO: move to matching.lua
-    -- convert user-specified route URL to regexp,
-    -- and initialize stashes
-    local estash = {  }
-    local stash = {  }
-    while true do
-        local name = string.match(opts.match, ':([%a_][%w_]*)')
-        if name == nil then
-            break
-        end
-        if estash[name] then
-            utils.errorf("duplicate stash: %s", name)
-        end
-        estash[name] = true
-        opts.match = string.gsub(opts.match, ':[%a_][%w_]*', '([^/]-)', 1)
-
-        table.insert(stash, name)
-    end
-    while true do
-        local name = string.match(opts.match, '[*]([%a_][%w_]*)')
-        if name == nil then
-            break
-        end
-        if estash[name] then
-            utils.errorf("duplicate stash: %s", name)
-        end
-        estash[name] = true
-        opts.match = string.gsub(opts.match, '[*][%a_][%w_]*', '(.-)', 1)
-
-        table.insert(stash, name)
-    end
-
-    -- ensure opts.match is like '^/xxx/$'
-    do
-        if string.match(opts.match, '.$') ~= '/' then
-            opts.match = opts.match .. '/'
-        end
-        if string.match(opts.match, '^.') ~= '/' then
-            opts.match = '/' .. opts.match
-        end
-        opts.match = '^' .. opts.match .. '$'
-    end
-
-    estash = nil
-
-    opts.stash = stash
+    opts.match, opts.stash = matching.transform_pattern(opts.path)
     opts.sub = sub
     opts.url_for = url_for_route
 

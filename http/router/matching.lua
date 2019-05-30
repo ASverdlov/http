@@ -1,6 +1,4 @@
--- concerns
--- 1. request path - route pattern matching
--- 2. stash
+local utils = require('http.utils')
 
 local function transform_filter(filter)
     local path = filter.path  -- luacheck: ignore
@@ -18,9 +16,58 @@ local function transform_filter(filter)
     }
 end
 
--- TODO: creates r.match
-local function transform_route_pattern(pattern)
+-- converts user-defined path pattern to a matcher string.
+-- used on adding new route.
+local function transform_pattern(path)
+    local match = path
+    match = string.gsub(match, '[-]', "[-]")
 
+    -- convert user-specified route URL to regexp,
+    -- and initialize stashes
+
+    local estash = {  }  -- helper table, name -> boolean
+    local stash = {  }   -- i -> word
+
+    while true do
+        local name = string.match(match, ':([%a_][%w_]*)')
+        if name == nil then
+            break
+        end
+        if estash[name] then
+            utils.errorf("duplicate stash: %s", name)
+        end
+        estash[name] = true
+        match = string.gsub(match, ':[%a_][%w_]*', '([^/]-)', 1)
+
+        table.insert(stash, name)
+    end
+
+    while true do
+        local name = string.match(match, '[*]([%a_][%w_]*)')
+        if name == nil then
+            break
+        end
+        if estash[name] then
+            utils.errorf("duplicate stash: %s", name)
+        end
+        estash[name] = true
+        match = string.gsub(match, '[*][%a_][%w_]*', '(.-)', 1)
+
+        table.insert(stash, name)
+    end
+
+    -- ensure match is like '^/xxx/$'
+    do
+        if string.match(match, '.$') ~= '/' then
+            match = match .. '/'
+        end
+        if string.match(match, '^.') ~= '/' then
+            match = '/' .. match
+        end
+        match = '^' .. match .. '$'
+    end
+
+    return match, stash
 end
 
 local function matches(r, filter)
@@ -65,5 +112,5 @@ return {
     matches = matches,
     better_than = better_than,
     transform_filter = transform_filter,
-    transform_route_pattern = transform_route_pattern,
+    transform_pattern = transform_pattern,
 }
