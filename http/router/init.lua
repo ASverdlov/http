@@ -1,5 +1,6 @@
 local fs = require('http.router.fs')
 local middleware = require('http.router.middleware')
+local matching = require('http.router.matching')
 local request_metatable = require('http.router.request').metatable
 
 local utils = require('http.utils')
@@ -101,60 +102,28 @@ end
 
 -- TODO: `route` is not route, but path...
 local function match_route(self, method, route)
-    -- route must have '/' at the begin and end
-    if string.match(route, '.$') ~= '/' then
-        route = route .. '/'
-    end
-    if string.match(route, '^.') ~= '/' then
-        route = '/' .. route
-    end
+    local filter = matching.transform_filter({
+        method = method,
+        path = route
+    })
 
-    method = string.upper(method)
-
-    local fit
-    local stash = {}
-
-    for k, r in pairs(self.routes) do
-        if r.method == method or r.method == 'ANY' then
-            local m = { string.match(route, r.match)  }
-            local nfit
-            if #m > 0 then
-                if #r.stash > 0 then
-                    if #r.stash == #m then
-                        nfit = r
-                    end
-                else
-                    nfit = r
-                end
-
-                if nfit ~= nil then
-                    if fit == nil then
-                        fit = nfit
-                        stash = m
-                    else
-                        if #fit.stash > #nfit.stash then
-                            fit = nfit
-                            stash = m
-                        elseif r.method ~= fit.method then
-                            if fit.method == 'ANY' then
-                                fit = nfit
-                                stash = m
-                            end
-                        end
-                    end
-                end
-            end
+    local best_match = nil
+    for _, r in pairs(self.routes) do
+        local ok, match = matching.matches(r, filter)
+        if ok and matching.better_than(match, best_match) then
+            best_match = match
         end
     end
 
-    if fit == nil then
-        return fit
+    if best_match == nil or best_match.route == nil then
+        return nil
     end
+
     local resstash = {}
-    for i = 1, #fit.stash do
-        resstash[ fit.stash[ i ] ] = stash[ i ]
+    for i = 1, #best_match.route.stash do
+        resstash[best_match.route.stash[i]] = best_match.stash[i]
     end
-    return  { endpoint = fit, stash = resstash }
+    return {endpoint = best_match.route, stash = resstash}
 end
 
 local function set_helper(self, name, sub)
@@ -265,6 +234,7 @@ local function add_route(self, opts, sub)
     opts.match = opts.path
     opts.match = string.gsub(opts.match, '[-]', "[-]")
 
+    -- TODO: move to matching.lua
     -- convert user-specified route URL to regexp,
     -- and initialize stashes
     local estash = {  }
