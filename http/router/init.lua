@@ -186,15 +186,35 @@ local possible_methods = {
     PATCH  = 'PATCH',
 }
 
--- TODO: error-handling, validation
 local function use_middleware(self, opts)
+    local opts = table.deepcopy(opts)   -- luacheck: ignore
+
     if type(opts) ~= 'table' or type(self) ~= 'table' then
         error("Usage: router:route({ ... }, function(cx) ... end)")
     end
+
     assert(type(opts.name) == 'string')
     assert(type(opts.handler) == 'function')
 
-    local opts = table.deepcopy(opts)   -- luacheck: ignore
+    opts.path = opts.path or '/.*'
+    assert(type(opts.path) == 'string')
+
+    opts.before = opts.before or {}
+    opts.after = opts.after or {}
+    for _, order_key in ipairs({'before', 'after'}) do
+        local opt = opts[order_key]
+        assert(type(opt) ~= 'string' or type(opt) ~= 'table',
+               ('%s must be a table of strings or a string'):format(order_key))
+        if type(opt) == 'table' then
+            for _, name in ipairs(opt) do
+                local fmt = ('%s of table type, must contain strings, got %s')
+                    :format(order_key, type(opt[name]))
+                assert(type(opt[name]) == 'string', fmt)
+            end
+        end
+    end
+
+    -- helpers for matching and retrieving pattern words
     opts.match, opts.stash = matching.transform_pattern(opts.path)
 
     return self.middleware:use(opts)
