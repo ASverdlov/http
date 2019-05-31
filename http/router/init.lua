@@ -66,21 +66,25 @@ local function main_endpoint_middleware(env)
     return r.endpoint.handler(request)
 end
 
+local function populate_chain_with_middleware(env, middleware_obj)
+    local filter = matching.transform_filter({
+            path = env['PATH_INFO'],
+            method = env['REQUEST_METHOD']
+    })
+    for _, m in pairs(middleware_obj:ordered()) do
+        if matching.matches(m, filter) then
+            tsgi.push_back_handler(env, m.handler)
+        end
+    end
+end
+
 local function dispatch_middleware(env)
     local self = env[tsgi.KEY_ROUTER]
 
     local r = self:match(env['REQUEST_METHOD'], env['PATH_INFO'])
     env[tsgi.KEY_ROUTE] = r
 
-    local filter = matching.transform_filter({
-        path = env['PATH_INFO'],
-        method = env['REQUEST_METHOD']
-    })
-    for _, m in pairs(self.middleware:ordered()) do
-        if matching.matches(m, filter) then
-            tsgi.push_back_handler(env, m.handler)
-        end
-    end
+    populate_chain_with_middleware(env, self.middleware)
 
     -- finally, add user specified handler
     tsgi.push_back_handler(env, main_endpoint_middleware)
@@ -94,7 +98,7 @@ local function router_handler(self, env)
     -- set-up middleware chain
     tsgi.init_handlers(env)
 
-    -- TODO: add pre-route middleware
+    populate_chain_with_middleware(env, self.preroute_middleware)
 
     -- add routing
     tsgi.push_back_handler(env, dispatch_middleware)
@@ -199,6 +203,8 @@ local function use_middleware(self, opts)
     opts.path = opts.path or '/.*'
     assert(type(opts.path) == 'string')
 
+    opts.method = opts.method or 'ANY'
+
     opts.before = opts.before or {}
     opts.after = opts.after or {}
     for _, order_key in ipairs({'before', 'after'}) do
@@ -217,6 +223,9 @@ local function use_middleware(self, opts)
     -- helpers for matching and retrieving pattern words
     opts.match, opts.stash = matching.transform_pattern(opts.path)
 
+    if opts.preroute == true then
+        return self.preroute_middleware:use(opts)
+    end
     return self.middleware:use(opts)
 end
 
@@ -315,19 +324,20 @@ local exports = {
         local self = {
             options = utils.extend(default, options, true),
 
-            routes      = {  },              -- routes array
-            iroutes     = {  },              -- routes by name
-            middleware = middleware.new(),   -- new middleware
-            helpers = {                      -- for use in templates
+            routes      = {  },                      -- routes array
+            iroutes     = {  },                      -- routes by name
+            middleware = middleware.new(),           -- new middleware
+            preroute_middleware = middleware.new(),  -- new middleware (preroute)
+            helpers = {                              -- for use in templates
                 url_for = url_for_helper,
             },
-            hooks       = {  },              -- middleware
+            hooks       = {  },                      -- middleware
 
             -- methods
-            use     = use_middleware,  -- new middleware
-            route   = add_route,       -- add route
-            helper  = set_helper,      -- for use in templates
-            hook    = set_hook,        -- middleware
+            use     = use_middleware,                -- new middleware
+            route   = add_route,                     -- add route
+            helper  = set_helper,                    -- for use in templates
+            hook    = set_hook,                      -- middleware
             url_for = url_for,
 
             -- private

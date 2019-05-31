@@ -534,7 +534,7 @@ test:test("server requests", function(test)
 end)
 
 test:test("middleware", function(test)
-    test:plan(9)
+    test:plan(12)
     local httpd, router = cfgserv()
 
     local add_helloworld_before_to_response = function(env)
@@ -619,6 +619,35 @@ test:test("middleware", function(test)
     local parsed_body = json.decode(r.body)
     test:is(parsed_body.kind, 'apple', 'body is correct')
     test:is(parsed_body.message, 'hello world! (before)', 'hello_world middleware invoked last')
+
+    local function swap_orange_and_apple(env)
+        local path_info = env['PATH_INFO']
+        local log = require('log')
+        log.info('swap_orange_and_apple: path_info = %s', path_info)
+
+        if path_info == '/fruits/orange' then
+            env['PATH_INFO'] = '/fruits/apple'
+        elseif path_info == '/fruits/apple' then
+            env['PATH_INFO'] = '/fruits/orange'
+        end
+
+        local tsgi = require('http.tsgi')
+        return tsgi.invoke_next_handler(env)
+    end
+
+    ok = router:use({
+        preroute = true,
+        name = 'swap_orange_and_apple',
+        handler = swap_orange_and_apple,
+    })
+    test:ok(ok, 'swap_orange_and_apple middleware added successfully')
+
+    r = http_client.get(
+        'http://127.0.0.1:12345/fruits/apple'
+    )
+    test:is(r.status, 200, 'status')
+    parsed_body = json.decode(r.body)
+    test:is(parsed_body.kind, 'orange', 'route swapped from apple handler to orange')
 
     httpd:stop()
 end)
