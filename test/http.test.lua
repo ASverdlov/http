@@ -559,28 +559,24 @@ test:test("middleware", function(test)
         return resp
     end
 
-    local ok = router:use(
-        {
-            name = 'hello_world',
-            path = '/.*',
-            method = {'GET', 'POST'},
-        },
-        add_helloworld_to_response
-    )
+    local ok = router:use({
+        name = 'hello_world',
+        path = '/.*',
+        method = {'GET', 'POST'},
+        handler = add_helloworld_to_response
+    })
     test:ok(ok, 'hello_world middleware added successfully')
 
     local middlewares_ordered = router.middleware:ordered()
     test:is(#middlewares_ordered, 1, 'one middleware is registered')
 
-    ok = router:use(
-        {
-            name = 'hello_world_before',
-            path = '/.*',
-            method = 'ANY',
-            before = 'hello_world'
-        },
-        add_helloworld_before_to_response
-    )
+    ok = router:use({
+        name = 'hello_world_before',
+        path = '/.*',
+        method = 'ANY',
+        before = 'hello_world',
+        handler = add_helloworld_before_to_response
+    })
     test:ok(ok, 'hello_world_before middleware added successfully')
 
     middlewares_ordered = router.middleware:ordered()

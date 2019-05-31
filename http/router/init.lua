@@ -63,7 +63,7 @@ local function main_endpoint_middleware(env)
     local stash = utils.extend(r.stash, { format = format })
     request.endpoint = r.endpoint  -- THIS IS ROUTE, BUT IS NAMED `ENDPOINT`! OH-MY-GOD!
     request.tstash   = stash
-    return r.endpoint.sub(request)
+    return r.endpoint.handler(request)
 end
 
 local function dispatch_middleware(env)
@@ -78,7 +78,7 @@ local function dispatch_middleware(env)
     })
     for _, m in pairs(self.middleware:ordered()) do
         if matching.matches(m, filter) then
-            tsgi.push_back_handler(env, m.sub)
+            tsgi.push_back_handler(env, m.handler)
         end
     end
 
@@ -88,7 +88,7 @@ local function dispatch_middleware(env)
     return tsgi.invoke_next_handler(env)
 end
 
-local function handler(self, env)
+local function router_handler(self, env)
     env[tsgi.KEY_ROUTER] = self
 
     -- set-up middleware chain
@@ -129,20 +129,20 @@ local function match_route(self, method, route)
     return {endpoint = best_match.route, stash = resstash}
 end
 
-local function set_helper(self, name, sub)
-    if sub == nil or type(sub) == 'function' then
-        self.helpers[ name ] = sub
+local function set_helper(self, name, handler)
+    if handler == nil or type(handler) == 'function' then
+        self.helpers[ name ] = handler
         return self
     end
-    utils.errorf("Wrong type for helper function: %s", type(sub))
+    utils.errorf("Wrong type for helper function: %s", type(handler))
 end
 
-local function set_hook(self, name, sub)
-    if sub == nil or type(sub) == 'function' then
-        self.hooks[ name ] = sub
+local function set_hook(self, name, handler)
+    if handler == nil or type(handler) == 'function' then
+        self.hooks[ name ] = handler
         return self
     end
-    utils.errorf("Wrong type for hook function: %s", type(sub))
+    utils.errorf("Wrong type for hook function: %s", type(handler))
 end
 
 local function url_for_route(r, args, query)
@@ -187,20 +187,20 @@ local possible_methods = {
 }
 
 -- TODO: error-handling, validation
-local function use_middleware(self, opts, sub)
+local function use_middleware(self, opts)
     if type(opts) ~= 'table' or type(self) ~= 'table' then
         error("Usage: router:route({ ... }, function(cx) ... end)")
     end
     assert(type(opts.name) == 'string')
+    assert(type(opts.handler) == 'function')
 
     local opts = table.deepcopy(opts)   -- luacheck: ignore
     opts.match, opts.stash = matching.transform_pattern(opts.path)
-    opts.sub = sub
 
     return self.middleware:use(opts)
 end
 
-local function add_route(self, opts, sub)
+local function add_route(self, opts, handler)
     if type(opts) ~= 'table' or type(self) ~= 'table' then
         error("Usage: router:route({ ... }, function(cx) ... end)")
     end
@@ -210,21 +210,21 @@ local function add_route(self, opts, sub)
     local ctx
     local action
 
-    if sub == nil then
-        sub = fs.render
-    elseif type(sub) == 'string' then
+    if handler == nil then
+        handler = fs.render
+    elseif type(handler) == 'string' then
 
-        ctx, action = string.match(sub, '(.+)#(.*)')
+        ctx, action = string.match(handler, '(.+)#(.*)')
 
         if ctx == nil or action == nil then
-            utils.errorf("Wrong controller format '%s', must be 'module#action'", sub)
+            utils.errorf("Wrong controller format '%s', must be 'module#action'", handler)
         end
 
-        sub = fs.ctx_action
+        handler = fs.ctx_action
 
-    elseif type(sub) ~= 'function' then
+    elseif type(handler) ~= 'function' then
         utils.errorf("wrong argument: expected function, but received %s",
-            type(sub))
+            type(handler))
     end
 
     opts.method = possible_methods[string.upper(opts.method)] or 'ANY'
@@ -237,7 +237,7 @@ local function add_route(self, opts, sub)
     opts.action = action
 
     opts.match, opts.stash = matching.transform_pattern(opts.path)
-    opts.sub = sub
+    opts.handler = handler
     opts.url_for = url_for_route
 
     -- register new route in a router
@@ -328,7 +328,7 @@ local exports = {
         -- 2) type(router) == 'table':
         --
         return setmetatable(self, {
-            __call = handler,
+            __call = router_handler,
         })
     end
 }
