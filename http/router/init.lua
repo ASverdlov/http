@@ -89,7 +89,7 @@ local function dispatch_middleware(env)
     -- finally, add user specified handler
     tsgi.push_back_handler(env, main_endpoint_middleware)
 
-    return tsgi.invoke_next_handler(env)
+    return tsgi.next(env)
 end
 
 local function router_handler(self, env)
@@ -104,7 +104,7 @@ local function router_handler(self, env)
     tsgi.push_back_handler(env, dispatch_middleware)
 
     -- execute middleware chain from first
-    return tsgi.invoke_next_handler(env)
+    return tsgi.next(env)
 end
 
 -- TODO: `route` is not route, but path...

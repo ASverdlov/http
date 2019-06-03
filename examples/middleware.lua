@@ -21,11 +21,11 @@ local function swap_orange_and_apple(env)
         env['PATH_INFO'] = '/fruits/orange'
     end
 
-    return tsgi.invoke_next_handler(env)
+    return tsgi.next(env)
 end
 
 local function add_helloworld_to_response(env)
-    local resp = tsgi.invoke_next_handler(env)
+    local resp = tsgi.next(env)
     if resp.body == nil then
         return resp
     end

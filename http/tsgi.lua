@@ -86,6 +86,6 @@ return {
     KEY_ROUTER = KEY_ROUTER,
 
     init_handlers = middleware_init_handlers,
-    invoke_next_handler = middleware_invoke_next_handler,
+    next = middleware_invoke_next_handler,
     push_back_handler = middleware_push_back_handler,
 }

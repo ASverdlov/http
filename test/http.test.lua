@@ -539,7 +539,7 @@ test:test("middleware", function(test)
 
     local add_helloworld_before_to_response = function(env)
         local tsgi = require('http.tsgi')
-        local resp = tsgi.invoke_next_handler(env)
+        local resp = tsgi.next(env)
 
         local lua_body = json.decode(resp.body)
         lua_body.message = 'hello world! (before)'
@@ -550,7 +550,7 @@ test:test("middleware", function(test)
 
     local add_helloworld_to_response = function(env)
         local tsgi = require('http.tsgi')
-        local resp = tsgi.invoke_next_handler(env)
+        local resp = tsgi.next(env)
 
         local lua_body = json.decode(resp.body)
         lua_body.message = 'hello world!'
@@ -632,7 +632,7 @@ test:test("middleware", function(test)
         end
 
         local tsgi = require('http.tsgi')
-        return tsgi.invoke_next_handler(env)
+        return tsgi.next(env)
     end
 
     ok = router:use({
